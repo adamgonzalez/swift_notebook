@@ -101,7 +101,7 @@ and long time-scales. Notice, however, that there are some instances where the
 source flux exhibits rapid and significant dips. These so-called 'drop-outs' are 
 associated with malfunctioning pixels on the UVOT detector, and are thus not due
 to intrinsic source variability. We'll need to clean those up, and to do that 
-we'll follow the method in the appendix of Edelson et al. (2015).
+we'll follow the method in the appendix of [Edelson et al. (2015)](10.1088/0004-637X/806/1/129).
 
 ```{r dropoutremoval}
 w2.lc.clean <- remove.dropouts(w2.lc, minimum.separation = 1.5)
@@ -136,12 +136,12 @@ of which very clearly looks suspicious compared to the rest of the light curve.
 
 The simplest quantification of the variability process is fractional variability, 
 which offers a straightforward way in which we can assess the degree of variability
-in a light curve. Edelson et al. (2002) and Vaughan et al. (2003) both present 
-formalisms for computing fractional variability (Fvar), with the latter method 
-producing error bars ~0.5x that of the former.
+in a light curve. [Edelson et al. (2002)](10.1086/323779) and [Vaughan et al. (2003)](10.1046/j.1365-2966.2003.07042.x)
+both present formalisms for computing fractional variability (Fvar), with the 
+latter method producing error bars ~0.5x that of the former.
 
 We can compute Fvar in each UVOT filter, and then plot the results as a function
-of filter centroid wavelength according to Poole et al. (2008). 
+of filter centroid wavelength according to [Poole et al. (2008)](10.1111/j.1365-2966.2007.12563.x). 
 
 ```{r fvar}
 w2.fvar <- calc.fvar(w2.lc.clean)
@@ -170,7 +170,8 @@ longer wavelengths. A variable accretion disc emission component alongside an
 invariant host-galaxy emission component can broadly reproduce such behaviour.
 
 To more thoroughly characterize the variability process in each waveband, we can
-compute the structure function. 
+compute the structure function (see [Collier & Peterson 2001](10.1086/321517) 
+and [Gallo et al. 2018](10.1093/mnras/sty1134)). 
 
 ```{r structurefunction}
 w2.sf <- calc.sf(w2.lc.clean)
@@ -197,10 +198,11 @@ emission components outside of the AGN central engine. In some cases, however,
 longer wavelength bands should be used, such as those sources that are extremely
 reddened due to dust either in the Milky Way or host galaxy. In our case, we'll
 use the W2 filter as our reference band. We'll use the interpolated cross-
-correlation function to evaluate the time-lags in each filter with respect to W2.
-Moreover, we'll limit the lag calculation to those time-scales <1/3 the light
-curve length, as signals with <3 cycles are ambiguously detected. We'll use a
-time sampling of 0.1 days.
+correlation function (ICCF; [Gaskell & Sparke 1986](10.1086/164238), [Gaskell & Peterson 1987](10.1086/191216), [White & Peterson 1994](10.1086/133456), [Edelson et al. 2019](10.3847/1538-4357/aaf3b4)) 
+to evaluate the time-lags in each filter with respect to W2. Moreover, we'll 
+limit the lag calculation to those time-scales <1/3 the light curve length, as 
+signals with <3 cycles are ambiguously detected. We'll use a time sampling of 0.1
+days.
 
 ```{r crosscorrelation}
 iccf.w2.m2 <- calc.iccf(w2.lc.clean, m2.lc.clean, delta.tau = 0.1, 
@@ -212,17 +214,17 @@ iccf.w2.w1 <- calc.iccf(w2.lc.clean, w1.lc.clean, delta.tau = 0.1,
                                         max(w1.lc.clean$TIME)-min(w1.lc.clean$TIME)))/3
                         )
 iccf.w2.u <- calc.iccf(w2.lc.clean, u.lc.clean, delta.tau = 0.1, 
-                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
-                                        max(u.lc.clean$TIME)-min(u.lc.clean$TIME)))/3
-                        )
+                       max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                       max(u.lc.clean$TIME)-min(u.lc.clean$TIME)))/3
+                       )
 iccf.w2.b <- calc.iccf(w2.lc.clean, b.lc.clean, delta.tau = 0.1, 
-                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
-                                        max(b.lc.clean$TIME)-min(b.lc.clean$TIME)))/3
-                        )
+                       max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                       max(b.lc.clean$TIME)-min(b.lc.clean$TIME)))/3
+                       )
 iccf.w2.v <- calc.iccf(w2.lc.clean, v.lc.clean, delta.tau = 0.1, 
-                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
-                                        max(v.lc.clean$TIME)-min(v.lc.clean$TIME)))/3
-                        )
+                       max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                       max(v.lc.clean$TIME)-min(v.lc.clean$TIME)))/3
+                       )
 
 ggplot() + 
   geom_vline(xintercept = 0, colour = "grey") + geom_hline(yintercept = 0, colour = "grey") +
@@ -248,20 +250,158 @@ the variability was just 'random' noise. In practice, AGN variability follows a
 'red' noise process, with increasing variability at longer wavelengths. Thus, we
 need to simulate a sample of realistic AGN red noise light curves to compute the
 expected 'noise' level in the ICCF. To do this, we'll use the simple method of
-Timmer & Koenig in which an AGN light curve is simulated based on an input power
-spectral density (PSD). The structure function slope (alpha) above is related to 
-the PSD slope (beta) as beta = 1 + alpha. Therefore, considering our W2 reference
-band gave us beta = 0.5 we can use alpha = 1.5 and simulate N = 1000 W2 light
-curves that we can compute the ICCF for against our observed W2 light curve.
+[Timmer & Konig (1995)](https://ui.adsabs.harvard.edu/abs/1995A%26A...300..707T/abstract)
+in which an AGN light curve is simulated based on an input power spectral density
+(PSD). The structure function slope (alpha) above is related to the PSD slope 
+(beta) as beta = 1 + alpha. Therefore, considering our W2 reference band gave us
+beta = 0.5 we can use alpha = 1.5 and simulate N = 1000 W2 light curves that we 
+can compute the ICCF for against our observed W2 light curve. Since this process
+can take a while (depending on the number of simulations that you want to do),
+we're going to parallelize it over 10 CPU cores (adjust down if you don't have
+that many!) using the R packages foreach and doParallel. 
 
 ```{r crosscorrelationsimulations}
+### FIX THIS!!!!vvvvvvv
+
+### set the light curves
+compare <- lc.w1 ; comparecolour <- plot.colours[4] ; compare.orig <- compare
+base <- read.table(paste(epoch, "/", base.results$filename[band.num], ".dat", sep = ""), header = T) ; basecolour <- plot.colours[7]
+t.diff <- min(c(compare$TIME, base$TIME))
+compare$TIME <- compare$TIME-t.diff
+base$TIME <- base$TIME-t.diff
+dtau <- 0.1
+max.lag.time <- round(max(c(compare$TIME, base$TIME))/2)*2/2
+
+
+### COMPUTE THE ICCF ###########################################################
+my.iccf <- calc.myiccf(base, compare, dtau, max.lag.time)
+
+
+
+
+
+### PLOT ICCF + CONTOURS + INITIAL GAUSSIAN FIT TO CENTROID ####################
+max.iccf.x <- round(max(my.iccf$tau)/5)*5
+peak.tau <- 5
+peak.idxs <- which(my.iccf$iccf > my.iccf$p99 & abs(my.iccf$tau) <= peak.tau)
+
+
+### MEASURE THE CENTROIDS ON MULTI-CORE ########################################
+n.iter <- num
+cores = 10
+cl <- makeCluster(cores[1])
+registerDoParallel(cl)
+# start.time <- Sys.time()
+centroids.parallel <- foreach(i=1:n.iter, .combine=rbind, .packages="heatools") %dopar% {
+  base.tmp <- base
+  compare.tmp <- compare
+
+  ### perform flux randomisation using error bars as st.dev. with mean = 0
+  base.tmp$RATE <- base.tmp$RATE + rnorm(n = length(base.tmp$RATE.ERR), mean = 0, sd = base.tmp$RATE.ERR)
+  compare.tmp$RATE <- compare.tmp$RATE + rnorm(n = length(compare.tmp$RATE.ERR), mean = 0, sd = compare.tmp$RATE.ERR)
+
+  ### resample the light curves keeping only unique times
+  base.rand.idx <- floor(runif(length(base.tmp$TIME), min=1, max=length(base.tmp$TIME)+1))
+  compare.rand.idx <- floor(runif(length(compare.tmp$TIME), min=1, max=length(compare.tmp$TIME)+1))
+  base.tmp <- base.tmp[unique(sort(base.rand.idx)),]
+  compare.tmp <- compare.tmp[unique(sort(compare.rand.idx)),]
+
+  ### compute the new iccf
+  tmp.iccf <- calc.myiccf(base.tmp, compare.tmp, dtau, max.lag = max.lag.time)
+  tmp.iccf <- tmp.iccf[which(is.nan(my.iccf$iccf) == F),]
+  # tmp.iccf$iccf
+
+  ### extract tmp.iccf time bins where it is > 99% contour of REAL iccf, then fit
+  tmp.peak.idxs <- which(tmp.iccf$iccf > my.iccf$p99 & abs(tmp.iccf$tau) <= peak.tau)
+  tmp.iccf.peak <- tmp.iccf[tmp.peak.idxs,]
+  tmp.iccf.peak <- tmp.iccf.peak[which(is.na(tmp.iccf.peak$iccf) == F),]
+  # tmp.gaussian.fit <- optim(par = c(start.norm, start.mean, start.width, start.const),
+  #                           fn = minimize.chisq,
+  #                           method = "L-BFGS-B",
+  #                           lower = c(1e-1, -5, 0.1, -1),
+  #                           upper = c(1e1, 5, 5, 1),
+  #                           control = list(maxit = 1000),
+  #                           # control = list(fnscale = 1e6, maxit = 1000),
+  #                           data = data.frame(x = tmp.iccf.peak$tau, y = tmp.iccf.peak$iccf, y.err = tmp.iccf.peak$iccf.err))
+  # centroids <- tmp.gaussian.fit$par[2]
+  # centroids <- length(tmp.peak.idxs)
+  centroids <- weighted.mean(tmp.iccf.peak$tau, w = tmp.iccf.peak$iccf)
+
+  centroids
+}
+stopCluster(cl)
+# end.time <- Sys.time()
+# end.time - start.time
+
+# for (i in 1:10){
+#   peak.idxs <- which(centroids.parallel[,i] > my.iccf$p99 & abs(my.iccf$tau) <= peak.tau)
+#   print(
+#   ggplot() +
+#     geom_vline(xintercept = 0.0, lty = 5, lwd = 0.25) + geom_hline(yintercept = c(-1, 0, 1), lty = c(3, 5, 3), lwd = 0.25) +
+#
+#     geom_step(aes(x = my.iccf$tau-dtau/2, y = centroids.parallel[,i]), colour = "grey", lwd = 0.5) +
+#     geom_errorbarh(aes(xmin = my.iccf$tau-dtau/2, xmax = my.iccf$tau+dtau/2, y = centroids.parallel[,i]), colour = "grey", height = 0, lwd = 0.5) +
+#     geom_point(data = my.iccf[peak.idxs,], aes(x = tau, y = centroids.parallel[peak.idxs,i]), colour = "black", shape = 19, size = 2) +
+#     geom_path(aes(x = my.iccf$tau, y = my.iccf$p99), colour = "firebrick1", lwd = 1) +
+#
+#     # coord_cartesian(ylim = c(0, 1), xlim = c(-10, 10)) +
+#     # coord_cartesian(ylim = c(0, 1), xlim = c(-max.iccf.x, max.iccf.x)) +
+#     xlab(bquote(italic(t)[W1]-italic(t)[X]/days)) + ylab(bquote(ICCF)) +
+#     scale_x_continuous(breaks = seq(from = -5e3, to = 5e3, by = 1e1), sec.axis = dup_axis(name = NULL, labels = rep(" ", length.out = length(seq(from = -5e3, to = 5e3, by = 1e1))))) +
+#     scale_y_continuous(breaks = seq(from = -2, to = 2, by = 0.5), sec.axis = dup_axis(name = NULL, labels = rep(" ", length.out = length(seq(from = -2, to = 2, by = 0.5))))) +
+#     guides(colour = "none")
+#   )
+# }
+
+centroids <- unname(centroids.parallel[,1]) ; rm(centroids.parallel)
+length(centroids[which(is.nan(centroids) == F)])
+centroids <- centroids[which(is.nan(centroids) == F)]
+
+dt <- 0.25
+centroid.histogram <- hist(centroids, breaks = seq(from = -max.lag.time, to = max.lag.time, by = dt), plot = F)
+lag.shaded <- data.frame(x = seq(from = unname(quantile(centroids, 0.16)), to = unname(quantile(centroids, 0.84)), by = 0.01))
+
+
+### PLOT FINAL ICCF + CONTOUR + CENTROID DISTRIBUTION ##########################
+# png(paste(epoch, "/iccfs/myICCFsgfilt_N", num, "_W1base_", base.results$band[band.num], "comp_Rplot.png", sep = ""), width = 6, height = 4, units = "in", res = 300)
+png(paste(epoch, "/iccfs/myICCFunfilt_W1base_", base.results$band[band.num], "comp_Rplot.png", sep = ""), width = 6, height = 4, units = "in", res = 300)
+print(
+ggplot() +
+  geom_vline(xintercept = 0.0, lty = 5, lwd = 0.25) + geom_hline(yintercept = c(-1, 0, 1), lty = c(3, 5, 3), lwd = 0.25) +
+  geom_col(aes(x = centroid.histogram$mids, y = centroid.histogram$counts/max(centroid.histogram$counts)), width = dt, fill = basecolour, alpha = 0.5) +
+  geom_step(data = my.iccf, aes(x = tau-dtau/2, y = iccf), colour = "black", lwd = 0.5) +
+  # geom_step(data = my.iccf, aes(x = tau-dtau/2, y = p99), colour = "firebrick1", lwd = 1) +
+  geom_path(data = my.iccf, aes(x = tau, y = p99), colour = "firebrick1", lwd = 1) +
+  coord_cartesian(ylim = c(0, 1), xlim = c(-10, 10)) +
+  # coord_cartesian(ylim = c(0, 1), xlim = c(-max.iccf.x, max.iccf.x)) +
+  xlab(bquote(italic(t)[W1]-italic(t)[X]/days)) + ylab(bquote(ICCF)) +
+  scale_x_continuous(breaks = seq(from = -100, to = 100, by = 5), sec.axis = dup_axis(name = NULL, labels = rep(" ", length.out = length(seq(from = -100, to = 100, by = 5))))) +
+  scale_y_continuous(breaks = seq(from = -2, to = 2, by = 0.25), sec.axis = dup_axis(name = NULL, labels = rep(" ", length.out = length(seq(from = -2, to = 2, by = 0.25))))) +
+  guides(colour = "none")
+)
+dev.off()
+
+### output the 68% confidence region of centroid measurement
+cat(paste(round(quantile(centroids, 0.16), digits=4),
+          round(quantile(centroids, 0.50), digits=4),
+          round(quantile(centroids, 0.84), digits=4), sep = " , "), "\n")
+
+base.results$lag.p16[band.num] <- as.numeric(unname(quantile(centroids, 0.16)))
+base.results$lag.p50[band.num] <- as.numeric(unname(quantile(centroids, 0.50)))
+base.results$lag.p84[band.num] <- as.numeric(unname(quantile(centroids, 0.84)))
+base.results$num.centroids[band.num] <- length(centroids)
+
+
+my.iccf <- my.iccf[which(is.na(my.iccf$iccf)==F),]
+write.table(my.iccf, file = paste(epoch, "/iccfs/myICCFunfilt_W1base_", base.results$band[band.num], "comp.dat", sep = ""), quote = F, row.names = F)
+write.table(centroids, file = paste(epoch, "/iccfs/myICCFunfilt_W1base_", base.results$band[band.num], "comp_centroids.dat", sep = ""), quote = F, row.names = F)
 ```
 
 Now that we know that we are observing truly significant time-lag signatures, we
 need to quantify the lags. We will use the flux randomization random subset 
-sampling (FR/RSS) method of Peterson et al. (find the paper). This method takes
-into account the different sampling of the variability process across the different
-wavebands. 
+sampling (FR/RSS) method of [Peterson et al. (1998)](10.1086/316177). This method
+takes into account the different sampling of the variability process across the 
+different wavebands. 
 
 ```{r crosscorrelationFRRSS}
 ```

@@ -290,3 +290,65 @@ calc.iccf <- function(lightcurve.1, lightcurve.2, delta.tau, max.lag = NA){
 
   return(data.frame(tau = tau.vals, iccf = iccf.vals))
 }
+
+
+TK95.simulate.lightcurve <- function(beta, bins = 1024, length = 100000, scale.factor = 1, shift.factor = 0, error.scale = 0.1) {
+  bins <- 2*bins
+  time <- seq(1,2*length, length.out = bins)
+  fourier.frequencies <- seq(1,bins)/length
+  step.one <- rnorm(bins)
+  step.two <- (1/fourier.frequencies)^(beta/2.0)
+  step.three <- step.one*step.two
+  step.four <- fft(step.three, inverse = TRUE)
+  step.five <- Re(step.four)
+  simulated.lc <- data.frame(TIME = time, TIME.ERR = time, RATE = step.five, RATE.ERR = step.five)
+  simulated.lc$TIME <- simulated.lc$TIME - simulated.lc$TIME[1]
+  simulated.lc$TIME.ERR <- (simulated.lc$TIME[2]-simulated.lc$TIME[1])/2
+  simulated.lc <- subset(simulated.lc, simulated.lc$TIME < length)
+  simulated.lc$RATE <- simulated.lc$RATE - mean(simulated.lc$RATE)
+  simulated.lc$RATE <- simulated.lc$RATE / max(abs(simulated.lc$RATE))
+  simulated.lc$RATE <- simulated.lc$RATE * scale.factor
+  simulated.lc$RATE <- simulated.lc$RATE + shift.factor
+  simulated.lc$RATE.ERR <- mean(simulated.lc$RATE) * error.scale
+  return(simulated.lc)
+}
+
+
+impose.gappy.cadence <- function(parent, child){
+  idx <- NA
+  for (i in 1:length(parent$TIME)){
+    idx <- c(idx, which.min(abs(child$TIME - parent$TIME[i])))
+  }
+  idx <- idx[-1]
+  gappy.child <- child[idx,]
+  gappy.child <- gappy.child[which(duplicated(gappy.child) == F),]
+  return(gappy.child)
+}
+
+
+iccf.sims.inparallel <- function(lightcurve.1, lightcurve.2, delta.tau, max.lag, n.sims, n.cores){
+  ### FIX THIS
+  n.iter <- n.sims
+  cores = n.cores
+  cl <- parallel::makeCluster(cores[1])
+  doParallel::registerDoParallel(cl)
+
+  all.sim.iccfs.parallel <- foreach::foreach(i=1:n.iter, .combine=cbind, .packages=c("heatools", "signal")) %dopar% {
+    slc <- sim.lc(2.78, length = 78, bins = 78/0.26, scale.factor = var(compare.orig$RATE), shift.factor = mean(compare.orig$RATE), error.scale = mean(compare.orig$RATE.ERR/compare.orig$RATE))
+    slc <- gappy.cadence(compare.orig, slc)
+    # slc <- detrend(slc, filter.width = filter.width, poly.order = 1)
+    sim.iccf <- calc.myiccf(base, slc, dtau, max.lag = max.lag.time)
+    all.sim.iccfs <- sim.iccf$iccf
+    all.sim.iccfs
+  }
+  stopCluster(cl)
+  # end.time <- Sys.time()
+  # end.time - start.time
+  all.sim.iccfs <- all.sim.iccfs.parallel ; rm(all.sim.iccfs.parallel)
+  ### Compile results into iccf data frame
+  length(which(is.nan(all.sim.iccfs) == T))
+  my.iccf$p99 <- NA_real_
+  for (i in 1:length(my.iccf$tau)){
+    my.iccf$p99[i] <- quantile(all.sim.iccfs[i,], 0.99, na.rm = T)
+  }
+}
