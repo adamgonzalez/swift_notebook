@@ -183,7 +183,270 @@ v.sf <- calc.sf(v.lc.clean)
 ggplot(data = w2.sf[-1,]) +
   geom_errorbar(mapping = aes(x = tau, ymin = val-err, ymax = val+err), width = 0, colour = w2.colour) +
   geom_point(mapping = aes(x = tau, y = val), colour = w2.colour) +
-  xlab(bquote(tau~"["~days~"]")) + scale_x_log10() +
+  xlab(bquote(tau~"[days]")) + scale_x_log10() +
   ylab(bquote(S(tau))) + scale_y_log10() +
   guides(colour = "none")
 ```
+
+(Insert a section about structure function fitting here!)
+
+Next, we can compute the time-lag between two wavebands. Typically, one filter
+is selected as the reference band to which all other filters are compared. Often,
+the W2 band is selected as the reference band as it is least contaminated by 
+emission components outside of the AGN central engine. In some cases, however,
+longer wavelength bands should be used, such as those sources that are extremely
+reddened due to dust either in the Milky Way or host galaxy. In our case, we'll
+use the W2 filter as our reference band. We'll use the interpolated cross-
+correlation function to evaluate the time-lags in each filter with respect to W2.
+Moreover, we'll limit the lag calculation to those time-scales <1/3 the light
+curve length, as signals with <3 cycles are ambiguously detected. We'll use a
+time sampling of 0.1 days.
+
+```{r crosscorrelation}
+iccf.w2.m2 <- calc.iccf(w2.lc.clean, m2.lc.clean, delta.tau = 0.1, 
+                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                        max(m2.lc.clean$TIME)-min(m2.lc.clean$TIME)))/3
+                        )
+iccf.w2.w1 <- calc.iccf(w2.lc.clean, w1.lc.clean, delta.tau = 0.1, 
+                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                        max(w1.lc.clean$TIME)-min(w1.lc.clean$TIME)))/3
+                        )
+iccf.w2.u <- calc.iccf(w2.lc.clean, u.lc.clean, delta.tau = 0.1, 
+                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                        max(u.lc.clean$TIME)-min(u.lc.clean$TIME)))/3
+                        )
+iccf.w2.b <- calc.iccf(w2.lc.clean, b.lc.clean, delta.tau = 0.1, 
+                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                        max(b.lc.clean$TIME)-min(b.lc.clean$TIME)))/3
+                        )
+iccf.w2.v <- calc.iccf(w2.lc.clean, v.lc.clean, delta.tau = 0.1, 
+                        max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                        max(v.lc.clean$TIME)-min(v.lc.clean$TIME)))/3
+                        )
+
+ggplot() + 
+  geom_vline(xintercept = 0, colour = "grey") + geom_hline(yintercept = 0, colour = "grey") +
+  geom_path(data = iccf.w2.m2, mapping = aes(x = tau, y = iccf), colour = m2.colour) +
+  geom_path(data = iccf.w2.w1, mapping = aes(x = tau, y = iccf), colour = w1.colour) +
+  geom_path(data = iccf.w2.u, mapping = aes(x = tau, y = iccf), colour = u.colour) +
+  geom_path(data = iccf.w2.b, mapping = aes(x = tau, y = iccf), colour = b.colour) +
+  geom_path(data = iccf.w2.v, mapping = aes(x = tau, y = iccf), colour = v.colour) +
+  xlab(bquote(tau~"[days]")) +
+  ylab(bquote(ICCF(tau))) +
+  guides(colour = "none")
+```
+
+At this point, it is clear that when compared to the W2 filter all other UVOT
+filters are highly correlated with nearly 0 time-lag. However, there are some 
+questions that we should ask ourselves: 1) how do we know what we're seeing is
+real and not just noise? and 2) how do we measure the time-lag?
+
+In the literature, question 1 is seldom addressed, but it's actually quite an 
+important point that will be directly related to our answer for question 2 later. 
+The basis of our answer is to try to compute what the ICCF should look like if 
+the variability was just 'random' noise. In practice, AGN variability follows a
+'red' noise process, with increasing variability at longer wavelengths. Thus, we
+need to simulate a sample of realistic AGN red noise light curves to compute the
+expected 'noise' level in the ICCF. To do this, we'll use the simple method of
+Timmer & Koenig in which an AGN light curve is simulated based on an input power
+spectral density (PSD). The structure function slope (alpha) above is related to 
+the PSD slope (beta) as beta = 1 + alpha. Therefore, considering our W2 reference
+band gave us beta = 0.5 we can use alpha = 1.5 and simulate N = 1000 W2 light
+curves that we can compute the ICCF for against our observed W2 light curve.
+
+```{r crosscorrelationsimulations}
+```
+
+Now that we know that we are observing truly significant time-lag signatures, we
+need to quantify the lags. We will use the flux randomization random subset 
+sampling (FR/RSS) method of Peterson et al. (find the paper). This method takes
+into account the different sampling of the variability process across the different
+wavebands. 
+
+```{r crosscorrelationFRRSS}
+```
+
+However, it is well-known
+that long-term trends in UV/optical AGN light curves can dominated such methods.
+Reverberation off on the accretion disc, however, is expected to occur on time-
+scales of ~days for systems such as NGC 6814 with black hole masses of ~1e7 Msol.
+Thus, we need to remove the long-term trend in the data and re-evaluate.
+
+We can de-trend the data using a Savitzky-Golay filter, which applies a polynomial
+of a user-specified order to a moving window containing a user-specified number 
+of points. But how do we choose the values? Let's start simple, with a 1st order
+polynomial. Then, we just need to determine how many points wide our moving
+window should be. 
+
+In the literature, the selection of smoothing window width has been somewhat 
+arbitrary. Here, we'll try to do it a bit more quantitatively by using the auto 
+correlation function (ACF) of the W2 filter. Since the ACF should be centered at
+tau = 0 days and should evaluate to ICCF(0) = 1, let's see for what window width
+we can optimize these values, i.e. let's see for what window width we can make 
+the ACF as narrow as possible while still evaluating to ICCF(0) = 1.
+
+```{r w2ACFoptimization}
+w2.acf <- calc.iccf(w2.lc.clean, 
+                    w2.lc.clean, 
+                    delta.tau = 0.1,
+                    max.lag = (max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME))/3
+                    )
+
+peak.width <- NA_real_
+for (i in 2:length(w2.acf$tau)){
+  if (w2.acf$iccf[i] > 0 & w2.acf$iccf[i-1] < 0 | w2.acf$iccf[i] < 0 & w2.acf$iccf[i-1] > 0){
+    peak.width <- c(peak.width, i)
+  }
+}
+peak.width <- min(abs(w2.acf$tau[peak.width[-1]]))
+
+
+filter.idxs <- seq(from = 11, to = 247, by = 2)
+best.filter <- data.frame(filter.width = NA_integer_,
+                          time.width = NA_real_,
+                          std.dev = NA_real_,
+                          iccf.max = NA_real_,
+                          peak.width = NA_real_)
+for (filter.width in filter.idxs){
+  w2.acf.sg.tmp <- calc.iccf(detrend.SavitzkyGolay(w2.lc.clean, filter.width = filter.width),
+                             detrend.SavitzkyGolay(w2.lc.clean, filter.width = filter.width),
+                             delta.tau = 0.1,
+                             max.lag = (max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME))/3)
+  peak.width.sg <- NA_real_
+  for (i in 2:length(w2.acf.sg.tmp$tau)){
+    if (w2.acf.sg.tmp$iccf[i] > 0 & w2.acf.sg.tmp$iccf[i-1] < 0 | w2.acf.sg.tmp$iccf[i] < 0 & w2.acf.sg.tmp$iccf[i-1] > 0){
+      peak.width.sg <- c(peak.width.sg, i)
+    }
+  }
+  peak.width.sg <- min(abs(w2.acf.sg.tmp$tau[peak.width.sg[-1]]))
+  
+  if (length(which(is.na(w2.acf.sg.tmp$iccf) == TRUE)) > 0){
+    cat(paste("***NaN found in DCF for filter.width = ", filter.width, "!\n", sep = ""))
+    next
+  } else if (is.na(w2.acf.sg.tmp$iccf) == F){
+    best.filter <- rbind(best.filter, data.frame(filter.width = filter.width,
+                                                 time.width = filter.width*median(diff(w2.lc.clean$TIME)),
+                                                 # std.dev =  sd(w2.acf.sg.tmp$iccf),
+                                                 # iccf.max = max(w2.acf.sg.tmp$iccf)))
+                                                 std.dev =  sd(w2.acf.sg.tmp$iccf[which(w2.acf.sg.tmp$tau <= -peak.width.sg | w2.acf.sg.tmp$tau >= peak.width.sg)]),
+                                                 iccf.max = max(w2.acf.sg.tmp$iccf[which(w2.acf.sg.tmp$tau >= -peak.width.sg | w2.acf.sg.tmp$tau <= peak.width.sg)]),
+                                                 peak.width = peak.width.sg))
+  }
+}
+best.filter <- best.filter[-1,]
+
+best.idx <- which.min(best.filter$std.dev)
+ggplot(best.filter) +
+  geom_path(aes(x = time.width, y = std.dev), colour = "firebrick1", lwd = 0.5) +
+  geom_point(aes(x = best.filter$time.width[best.idx], y = best.filter$std.dev[best.idx]), colour = "dodgerblue", shape = 8, size = 3) +
+  xlab(bquote(w/days)) +
+  ylab(bquote(sigma[ACF])) +
+  guides(colour = "none")
+# best.filter[best.idx,]
+```
+
+From the plot of ACF peak width and window size above, it is clear that a width
+of 83 points minimizes the ACF peak width. Considering the median time separation
+between observations, this corresponds approximately to a time smoothing of ~21.6
+days. Let's have a look at the trend in the W2 light curve that we've smoothed.
+
+```{r w2smoothedlightcurve}
+w2.sg.trend <- detrend.SavitzkyGolay(w2.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'SG')
+
+ggplot() +
+  geom_errorbarh(data = w2.lc.clean, mapping = aes(xmin = TIME-TIME.ERR, xmax = TIME+TIME.ERR, y = RATE), height = 0, colour = w2.colour) +
+  geom_errorbar(data = w2.lc.clean, mapping = aes(x = TIME, ymin = RATE-RATE.ERR, ymax = RATE+RATE.ERR), width = 0, colour = w2.colour) +
+  geom_point(data = w2.lc.clean, mapping = aes(x = TIME, y = RATE), colour = w2.colour) +
+
+  geom_path(data = w2.sg.trend, mapping = aes(x = TIME, y = RATE), colour = "black") +
+    
+  xlab("Days since 28 Aug 2022") +
+  ylab("Flux [mJy]") +
+  guides(colour = "none")
+```
+
+Let's see what's left over when we de-trend the light curve then (original-trend).
+
+```{r w2detrendedlightcurve}
+w2.sg.detrended <- detrend.SavitzkyGolay(w2.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'detrended')
+
+ggplot() +
+  geom_hline(yintercept = 0, colour = "black") +
+  geom_errorbarh(data = w2.sg.detrended, mapping = aes(xmin = TIME-TIME.ERR, xmax = TIME+TIME.ERR, y = RATE), height = 0, colour = w2.colour) +
+  geom_errorbar(data = w2.sg.detrended, mapping = aes(x = TIME, ymin = RATE-RATE.ERR, ymax = RATE+RATE.ERR), width = 0, colour = w2.colour) +
+  geom_point(data = w2.sg.detrended, mapping = aes(x = TIME, y = RATE), colour = w2.colour) +
+
+  xlab("Days since 28 Aug 2022") +
+  ylab("Flux [mJy]") +
+  guides(colour = "none")
+```
+
+Great, the long-term trend is completely removed and what we're left with is the
+rapid variability that is most likely to be associated with reverberation off of
+the accretion disc. Let's see how the ACF has changed.
+
+```{r w2detrendedACF}
+w2.acf.sg <- calc.iccf(w2.sg.detrended,
+                       w2.sg.detrended,
+                       delta.tau = 0.1,
+                       max.lag = (max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME))/3)
+
+ggplot() +
+  geom_hline(yintercept = 0, colour = "grey") + geom_vline(xintercept = 0, colour = "grey") +
+  geom_path(data = w2.acf, mapping = aes(x = tau, y = iccf), colour = w2.colour) +
+  geom_path(data = w2.acf.sg, mapping = aes(x = tau, y = iccf), colour = "black") +
+  xlab(bquote(tau~"[days]")) +
+  ylab(bquote(ICCF(tau))) +
+  guides(colour = "none")
+```
+
+Armed with this optimal smoothing window width, let's apply it to all of the light
+curves and re-evaluate the time-lags.
+
+```{r detrendedcrosscorrelation}
+
+m2.sg.detrended <- detrend.SavitzkyGolay(m2.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'detrended')
+w1.sg.detrended <- detrend.SavitzkyGolay(w1.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'detrended')
+u.sg.detrended <- detrend.SavitzkyGolay(u.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'detrended')
+b.sg.detrended <- detrend.SavitzkyGolay(b.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'detrended')
+v.sg.detrended <- detrend.SavitzkyGolay(v.lc.clean, filter.width = best.filter$filter.width[best.idx], output = 'detrended')
+
+
+iccf.w2.m2.detrended <- calc.iccf(w2.sg.detrended, m2.sg.detrended, delta.tau = 0.1,
+                                  max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                                  max(m2.lc.clean$TIME)-min(m2.lc.clean$TIME)))/3
+                                  )
+iccf.w2.w1.detrended <- calc.iccf(w2.sg.detrended, w1.sg.detrended, delta.tau = 0.1, 
+                                  max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                                  max(w1.lc.clean$TIME)-min(w1.lc.clean$TIME)))/3
+                                  )
+iccf.w2.u.detrended <- calc.iccf(w2.sg.detrended, u.sg.detrended, delta.tau = 0.1, 
+                                 max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                                 max(u.lc.clean$TIME)-min(u.lc.clean$TIME)))/3
+                                 )
+iccf.w2.b.detrended <- calc.iccf(w2.sg.detrended, b.sg.detrended, delta.tau = 0.1, 
+                                 max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                                 max(b.lc.clean$TIME)-min(b.lc.clean$TIME)))/3
+                                 )
+iccf.w2.v.detrended <- calc.iccf(w2.sg.detrended, v.sg.detrended, delta.tau = 0.1, 
+                                 max.lag = max(c(max(w2.lc.clean$TIME)-min(w2.lc.clean$TIME),
+                                                 max(v.lc.clean$TIME)-min(v.lc.clean$TIME)))/3
+                                 )
+
+ggplot() + 
+  geom_vline(xintercept = 0, colour = "grey") + geom_hline(yintercept = 0, colour = "grey") +
+  geom_path(data = iccf.w2.m2.detrended, mapping = aes(x = tau, y = iccf), colour = m2.colour) +
+  geom_path(data = iccf.w2.w1.detrended, mapping = aes(x = tau, y = iccf), colour = w1.colour) +
+  geom_path(data = iccf.w2.u.detrended, mapping = aes(x = tau, y = iccf), colour = u.colour) +
+  geom_path(data = iccf.w2.b.detrended, mapping = aes(x = tau, y = iccf), colour = b.colour) +
+  geom_path(data = iccf.w2.v.detrended, mapping = aes(x = tau, y = iccf), colour = v.colour) +
+  xlab(bquote(tau~"[days]")) +
+  ylab(bquote(ICCF(tau))) +
+  guides(colour = "none")
+```
+
+
+
+
+
+

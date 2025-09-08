@@ -165,7 +165,7 @@ calc.fvar <- function(lightcurve, method = "Vaughan"){
 }
 
 
-detrend.SavitzkyGolay <- function(light.curve, filter.width = NULL, polynomial.order = 1, output = NULL){
+detrend.SavitzkyGolay <- function(light.curve, filter.width = NULL, polynomial.order = 1, output = 'detrended'){
   #' @title De-trend a light curve using a Savitzky-Golay filter
   #' @description Using a Savitzky-Golay filter from the 'signal' package with
   #' the user-defined filter width and polynomial order, de-trend an input light
