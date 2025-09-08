@@ -47,8 +47,7 @@ lc.uvot <- function(file.path, flux.units){
                    TIME = NA_real_, TIME.ERR = NA_real_,
                    RATE = NA_real_, RATE.ERR = NA_real_)
 
-  # for (k in 1:length(obs.ids)){
-  for (k in 1:10){
+  for (k in 1:length(obs.ids)){
     cat(paste("Working on observation:\t", k, " / ", length(obs.ids)), "\r")
     tmp.files <- df.files[which(df.files$OBSID == obs.ids[k]),]
 
@@ -133,6 +132,36 @@ remove.dropouts <- function(light.curve, minimum.separation = NULL, tolerance = 
   }
 
   return(light.curve[,c("TIME", "TIME.ERR", "RATE", "RATE.ERR")])
+}
+
+
+calc.fvar <- function(lightcurve, method = "Vaughan"){
+  #' @title Compute fractional variability of light curve
+  #' @description Takes the input data frame light curve and compute the fractional variability as in Vaughan et al. (2003), MNRAS, 345, 1271-1284.
+  #' @param lightcurve data frame of light curve
+  #' @param method method used to compute fractional variability
+  #' @return Data frame of fractional variability and error.
+  #' @examples fv <- fracvar(lightcurve)
+  #' @export
+
+  if (method == "Edelson"){
+    ### Edelson+2002
+    y.vals <- lightcurve$RATE
+    y.errs <- lightcurve$RATE.ERR
+    s.sq <- sum((y.vals - mean(y.vals))^2) / (length(y.vals)-1)
+    f.var <- sqrt(s.sq-mean(y.errs^2))/mean(y.vals)
+    f.var.err <- (1/f.var) * sqrt(1/(2*length(y.vals))) * (s.sq/(mean(y.vals)^2))
+  } else if (method == "Vaughan"){
+    ### Vaughan+2003
+    y.vals <- lightcurve$RATE
+    y.errs <- lightcurve$RATE.ERR
+    s.sq <- sum((y.vals - mean(y.vals))^2) / (length(y.vals) - 1)
+    sig.sq <- sum(y.errs^2) / length(y.errs)
+    f.var <- sqrt((s.sq - sig.sq) / mean(y.vals)^2)
+    f.var.err <- sqrt((sqrt(1 / (2*length(y.vals))) * sig.sq / (mean(y.vals)^2 * f.var))^2 + (sqrt(sig.sq/length(y.vals)) * 1/mean(y.vals))^2)
+  }
+
+  return(data.frame(FVAR=f.var, FVAR.ERR=f.var.err))
 }
 
 

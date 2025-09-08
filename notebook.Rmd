@@ -5,6 +5,16 @@ output:
   github_document:
 ---
 
+This workbook guides you through my analysis workflow for multi-wavelength Swift
+UVOT observing campaigns, specifically for the 2022 campaign on NGC 6814 as
+published in [my paper](https://academic.oup.com/mnras/article/527/3/5569/7425644),
+though the workflow and methods can be applied to any campaign.
+
+First, we need to load the method functions as well as the ggplot2 package with
+my custom theme. The functions.R file contains all of the code for the methods
+used throughout this workbook, so you should go over them to actually understand
+what is happening at each step.
+
 ```{r loadpackages}
 source("functions.R")
 library(ggplot2)
@@ -20,31 +30,160 @@ paper.theme <- theme_bw() +
 theme_set(paper.theme)
 ```
 
+Our first task is to process the Swift UVOT data, which is not performed in this
+workbook. Swift UVOT data can be publicly accessed via the [HEASARC data archive](https://heasarc.gsfc.nasa.gov/docs/archive.html). Once you've downloaded
+the data, you'll need to actually process it using the tasks included in [HEASoft](https://heasarc.gsfc.nasa.gov/docs/software/lheasoft/) with the latest
+[calibration files](https://heasarc.gsfc.nasa.gov/docs/heasarc/caldb/caldb_intro.html).
+You'll need to run $\texttt{uvotsource}$ on the UVOT images to get the outputs 
+expected as inputs for the methods used here. Once you've done all of that, you 
+can begin the analysis process.
+
+I've placed my $\texttt{uvotsource}$ output FITS files in the uvotsource_output/
+directory. We'll start by loading all of the output files and merging them into
+a single R data frame. The data frame will contain information on the observation
+ID number, start time, UVOT filter, and flux values in units specified by the user,
+which in this case will be milliJanskys. 
+
 ```{r readUVOTFITS}
 uvot.lc <- lc.uvot("uvotsource_outputfiles", "mJy")
 ```
 
-With all of the Swift UVOT files produced by uvotsource read in, we can now focus
-on the 2022 epoch. We can use the HEASARC [xTime](https://heasarc.gsfc.nasa.gov/cgi-bin/Tools/xTime/xTime.pl)
+With all of the information merged into a single data frame, we can now focus on
+the 2022 epoch. We can use the HEASARC [xTime](https://heasarc.gsfc.nasa.gov/cgi-bin/Tools/xTime/xTime.pl)
 tool to convert the 2022 epoch start date of 28 Aug 2022 into units of Swift 
 Mission Elapsed Time (MET), which yields MET = 683337629.755 seconds. Then, we 
-can break the 'master' light curve into light curves for each individual filter 
-and have a look at our light curve data.
+can break the merged data frame into separate data frames per UVOT filter.
 
 ```{r prep2022data}
+# Filter for only the 2022 observing epoch
 met.aug282022 <- 683337629.755
 day.seconds <- 86164.0905
 uvot.lc$TIME <- (uvot.lc$TIME - met.aug282022)/day.seconds
 uvot.lc$TIME.ERR <- uvot.lc$TIME.ERR/day.seconds
 uvot.lc <- uvot.lc[which(uvot.lc$TIME >= 0),]
 
+# Break the master light curve into separate filters
 w2.lc <- uvot.lc[which(uvot.lc$FILTER == "w2"), c("TIME", "TIME.ERR", "RATE", "RATE.ERR")]
 m2.lc <- uvot.lc[which(uvot.lc$FILTER == "m2"), c("TIME", "TIME.ERR", "RATE", "RATE.ERR")]
 w1.lc <- uvot.lc[which(uvot.lc$FILTER == "w1"), c("TIME", "TIME.ERR", "RATE", "RATE.ERR")]
 u.lc <- uvot.lc[which(uvot.lc$FILTER == "uu"), c("TIME", "TIME.ERR", "RATE", "RATE.ERR")]
 b.lc <- uvot.lc[which(uvot.lc$FILTER == "bb"), c("TIME", "TIME.ERR", "RATE", "RATE.ERR")]
 v.lc <- uvot.lc[which(uvot.lc$FILTER == "vv"), c("TIME", "TIME.ERR", "RATE", "RATE.ERR")]
+```
 
+Now, let's have a look at the data for one of our filters. We'll take the W2
+filter as our base example moving forward as it will be our so-called reference
+band later on.
+
+```{r plotW2lightcurve}
+# Define the colour palette
+colour.palette <- palette.colors(n = 6, palette = "Dark2")
+w2.colour <- colour.palette[4]
+m2.colour <- colour.palette[3]
+w1.colour <- colour.palette[1]
+u.colour <- colour.palette[5]
+b.colour <- colour.palette[6]
+v.colour <- colour.palette[2]
+plot.colours <- c(w2.colour, m2.colour, w1.colour, u.colour, b.colour, v.colour)
+
+# Plot the W2 band light curve
+ggplot(data = w2.lc) +
+  geom_errorbarh(mapping = aes(xmin = TIME-TIME.ERR, xmax = TIME+TIME.ERR, y = RATE), height = 0, colour = w2.colour) +
+  geom_errorbar(mapping = aes(x = TIME, ymin = RATE-RATE.ERR, ymax = RATE+RATE.ERR), width = 0, colour = w2.colour) +
+  geom_point(mapping = aes(x = TIME, y = RATE), colour = w2.colour) +
+  xlab("Days since 28 Aug 2022") +
+  ylab("Flux [mJy]") +
+  guides(colour = "none")
+```
+
+As we can see, the W2 light curve exhibits significant variability on both short
+and long time-scales. Notice, however, that there are some instances where the 
+source flux exhibits rapid and significant dips. These so-called 'drop-outs' are 
+associated with malfunctioning pixels on the UVOT detector, and are thus not due
+to intrinsic source variability. We'll need to clean those up, and to do that 
+we'll follow the method in the appendix of Edelson et al. (2015).
+
+```{r dropoutremoval}
+w2.lc.clean <- remove.dropouts(w2.lc, minimum.separation = 1.5)
+m2.lc.clean <- remove.dropouts(m2.lc, minimum.separation = 1.5)
+w1.lc.clean <- remove.dropouts(w1.lc, minimum.separation = 1.5)
+u.lc.clean <- remove.dropouts(u.lc, minimum.separation = 1.5)
+b.lc.clean <- remove.dropouts(b.lc, minimum.separation = 1.5)
+v.lc.clean <- remove.dropouts(v.lc, minimum.separation = 1.5)
+```
+
+The minimum.separation = 1.5 parameter indicates that we want to remove drop-outs
+with a minimum separation of at least 1.5 days between them. Let's have a look at
+how the cleaned data compare to the unfiltered data.
+
+```{r dropoutcomparison}
 ggplot() +
-  geom_point(data = w2.lc, aes(x = TIME, y = RATE), )
+  geom_errorbarh(data = w2.lc, mapping = aes(xmin = TIME-TIME.ERR, xmax = TIME+TIME.ERR, y = RATE), height = 0, colour = 'grey') +
+  geom_errorbar(data = w2.lc, mapping = aes(x = TIME, ymin = RATE-RATE.ERR, ymax = RATE+RATE.ERR), width = 0, colour = 'grey') +
+  geom_point(data = w2.lc, mapping = aes(x = TIME, y = RATE), colour = 'grey') +
+  
+  geom_errorbarh(data = w2.lc.clean, mapping = aes(xmin = TIME-TIME.ERR, xmax = TIME+TIME.ERR, y = RATE), height = 0, colour = w2.colour) +
+  geom_errorbar(data = w2.lc.clean, mapping = aes(x = TIME, ymin = RATE-RATE.ERR, ymax = RATE+RATE.ERR), width = 0, colour = w2.colour) +
+  geom_point(data = w2.lc.clean, mapping = aes(x = TIME, y = RATE), colour = w2.colour) +
+  
+  xlab("Days since 28 Aug 2022") +
+  ylab("Flux [mJy]") +
+  guides(colour = "none")
+```
+
+As we can see, only 2 exposures were removed in the W2 light curve, the second
+of which very clearly looks suspicious compared to the rest of the light curve.
+
+The simplest quantification of the variability process is fractional variability, 
+which offers a straightforward way in which we can assess the degree of variability
+in a light curve. Edelson et al. (2002) and Vaughan et al. (2003) both present 
+formalisms for computing fractional variability (Fvar), with the latter method 
+producing error bars ~0.5x that of the former.
+
+We can compute Fvar in each UVOT filter, and then plot the results as a function
+of filter centroid wavelength according to Poole et al. (2008). 
+
+```{r fvar}
+w2.fvar <- calc.fvar(w2.lc.clean)
+m2.fvar <- calc.fvar(m2.lc.clean)
+w1.fvar <- calc.fvar(w1.lc.clean)
+u.fvar <- calc.fvar(u.lc.clean)
+b.fvar <- calc.fvar(b.lc.clean)
+v.fvar <- calc.fvar(v.lc.clean)
+
+fvar.spectrum <- data.frame(WAVELENGTH = c(1928, 2246, 2600, 3465, 4392, 5468),
+                            FVAR = c(w2.fvar$FVAR, m2.fvar$FVAR, w1.fvar$FVAR, u.fvar$FVAR, b.fvar$FVAR, v.fvar$FVAR),
+                            FVAR.ERR = c(w2.fvar$FVAR.ERR, m2.fvar$FVAR.ERR, w1.fvar$FVAR.ERR, u.fvar$FVAR.ERR, b.fvar$FVAR.ERR, v.fvar$FVAR.ERR))
+
+ggplot(data = fvar.spectrum) +
+  geom_errorbar(mapping = aes(x = WAVELENGTH, ymin = FVAR-FVAR.ERR, ymax = FVAR+FVAR.ERR, colour = as.factor(WAVELENGTH)), width = 0) +
+  geom_point(mapping = aes(x = WAVELENGTH, y = FVAR, colour = as.factor(WAVELENGTH))) +
+  scale_colour_manual(values = plot.colours) +
+  xlab("Observed wavelength [Angstrom]") + scale_x_log10() +
+  ylab("Fractional variability") +
+  guides(colour = "none")
+```
+
+We can already see some interesting behaviour! Fvar seems to decrease log-linearly
+with wavelength. This suggests some damping mechanism with increasing strength at
+longer wavelengths. A variable accretion disc emission component alongside an 
+invariant host-galaxy emission component can broadly reproduce such behaviour.
+
+To more thoroughly characterize the variability process in each waveband, we can
+compute the structure function. 
+
+```{r structurefunction}
+w2.sf <- calc.sf(w2.lc.clean)
+m2.sf <- calc.sf(m2.lc.clean)
+w1.sf <- calc.sf(w1.lc.clean)
+u.sf <- calc.sf(u.lc.clean)
+b.sf <- calc.sf(b.lc.clean)
+v.sf <- calc.sf(v.lc.clean)
+
+ggplot(data = w2.sf[-1,]) +
+  geom_errorbar(mapping = aes(x = tau, ymin = val-err, ymax = val+err), width = 0, colour = w2.colour) +
+  geom_point(mapping = aes(x = tau, y = val), colour = w2.colour) +
+  xlab(bquote(tau~"["~days~"]")) + scale_x_log10() +
+  ylab(bquote(S(tau))) + scale_y_log10() +
+  guides(colour = "none")
 ```
