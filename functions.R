@@ -47,7 +47,8 @@ lc.uvot <- function(file.path, flux.units){
                    TIME = NA_real_, TIME.ERR = NA_real_,
                    RATE = NA_real_, RATE.ERR = NA_real_)
 
-  for (k in 1:length(obs.ids)){
+  # for (k in 1:length(obs.ids)){
+  for (k in 1:10){
     cat(paste("Working on observation:\t", k, " / ", length(obs.ids)), "\r")
     tmp.files <- df.files[which(df.files$OBSID == obs.ids[k]),]
 
