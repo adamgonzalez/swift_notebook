@@ -1,3 +1,7 @@
+library(foreach)
+library(parallel)
+library(doParallel)
+
 lc.uvot <- function(file.path, flux.units){
   #' @title Reads in uvotsource output files and makes a light curve data frame
   #' @description This function will read in all of the output files produced by
@@ -48,6 +52,7 @@ lc.uvot <- function(file.path, flux.units){
                    RATE = NA_real_, RATE.ERR = NA_real_)
 
   for (k in 1:length(obs.ids)){
+  # for (k in 1:50){
     cat(paste("Working on observation:\t", k, " / ", length(obs.ids)), "\r")
     tmp.files <- df.files[which(df.files$OBSID == obs.ids[k]),]
 
@@ -233,6 +238,14 @@ calc.sf <- function(light.curve, min.counts = 10, var.signal = 1, var.noise = 0)
   }
 
   sf <- sf[which(sf$num >= min.counts),]
+
+  if (length(which(sf$val[-1] < 0)) > 0 | length(which(sf$val[-1] < sf$err[-1])) > 0){
+    cat("***be careful with this SF, it has bad values!", "\n")
+  }
+
+  # sf$val[which(sf$err > sf$val)] = sf$err
+  # sf$val[which(sf$val < 0)] = 0
+
   return(sf)
 }
 
@@ -326,29 +339,102 @@ impose.gappy.cadence <- function(parent, child){
 }
 
 
-iccf.sims.inparallel <- function(lightcurve.1, lightcurve.2, delta.tau, max.lag, n.sims, n.cores){
-  ### FIX THIS
-  n.iter <- n.sims
-  cores = n.cores
-  cl <- parallel::makeCluster(cores[1])
-  doParallel::registerDoParallel(cl)
-
-  all.sim.iccfs.parallel <- foreach::foreach(i=1:n.iter, .combine=cbind, .packages=c("heatools", "signal")) %dopar% {
-    slc <- sim.lc(2.78, length = 78, bins = 78/0.26, scale.factor = var(compare.orig$RATE), shift.factor = mean(compare.orig$RATE), error.scale = mean(compare.orig$RATE.ERR/compare.orig$RATE))
-    slc <- gappy.cadence(compare.orig, slc)
-    # slc <- detrend(slc, filter.width = filter.width, poly.order = 1)
-    sim.iccf <- calc.myiccf(base, slc, dtau, max.lag = max.lag.time)
+iccf.sims.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau, max.lag, beta, length, bins, n.sims, n.cores,
+                                 detrend = FALSE, filter.width = NULL, polynomial.order = 1){
+  cl <- makeCluster(n.cores[1])
+  registerDoParallel(cl)
+  all.sim.iccfs.parallel <- foreach(i=1:n.sims,
+                                    .combine=cbind,
+                                    .export = c("calc.iccf",
+                                                "detrend.SavitzkyGolay",
+                                                "impose.gappy.cadence",
+                                                "TK95.simulate.lightcurve"
+                                                )
+                                    ) %dopar% {
+    slc <- TK95.simulate.lightcurve(beta, length = length, bins = bins, scale.factor = var(lightcurve.1$RATE), shift.factor = mean(lightcurve.1$RATE), error.scale = mean(lightcurve.1$RATE.ERR/lightcurve.1$RATE))
+    slc <- impose.gappy.cadence(lightcurve.1, slc)
+    if (detrend == TRUE & is.null(filter.width) == FALSE){
+      slc <- detrend.SavitzkyGolay(slc, filter.width = filter.width, polynomial.order = polynomial.order, output = 'detrended')
+    }
+    sim.iccf <- calc.iccf(slc, lightcurve.2, delta.tau = delta.tau, max.lag = max.lag)
     all.sim.iccfs <- sim.iccf$iccf
+
     all.sim.iccfs
   }
   stopCluster(cl)
-  # end.time <- Sys.time()
-  # end.time - start.time
-  all.sim.iccfs <- all.sim.iccfs.parallel ; rm(all.sim.iccfs.parallel)
+  all.sim.iccfs <- all.sim.iccfs.parallel
+  rm(all.sim.iccfs.parallel)
+
   ### Compile results into iccf data frame
   length(which(is.nan(all.sim.iccfs) == T))
-  my.iccf$p99 <- NA_real_
-  for (i in 1:length(my.iccf$tau)){
-    my.iccf$p99[i] <- quantile(all.sim.iccfs[i,], 0.99, na.rm = T)
+  iccf$p99 <- NA_real_
+  for (i in 1:length(iccf$tau)){
+    iccf$p99[i] <- quantile(all.sim.iccfs[i,], 0.99, na.rm = T)
   }
+
+  return(iccf)
+}
+
+
+iccf.centroid.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau, max.lag, peak.width = NULL, n.sims, n.cores){
+  if (is.null(peak.width) == TRUE){
+    peak.width <- max.lag
+  }
+
+  cl <- makeCluster(n.cores[1])
+  registerDoParallel(cl)
+
+  centroids.parallel <- foreach(i=1:n.sims,
+                                .combine=rbind,
+                                .export = c("calc.iccf")
+                                ) %dopar% {
+    base.tmp <- lightcurve.1
+    compare.tmp <- lightcurve.2
+
+    ### perform flux randomisation using error bars as st.dev. with mean = 0
+    base.tmp$RATE <- base.tmp$RATE + rnorm(n = length(base.tmp$RATE.ERR), mean = 0, sd = base.tmp$RATE.ERR)
+    compare.tmp$RATE <- compare.tmp$RATE + rnorm(n = length(compare.tmp$RATE.ERR), mean = 0, sd = compare.tmp$RATE.ERR)
+
+    ### resample the light curves keeping only unique times
+    base.rand.idx <- floor(runif(length(base.tmp$TIME), min=1, max=length(base.tmp$TIME)+1))
+    compare.rand.idx <- floor(runif(length(compare.tmp$TIME), min=1, max=length(compare.tmp$TIME)+1))
+    base.tmp <- base.tmp[unique(sort(base.rand.idx)),]
+    compare.tmp <- compare.tmp[unique(sort(compare.rand.idx)),]
+
+    ### compute the new iccf
+    tmp.iccf <- calc.iccf(base.tmp, compare.tmp, delta.tau = delta.tau, max.lag = max.lag)
+    tmp.iccf <- tmp.iccf[which(is.nan(iccf$iccf) == F),]
+
+    ### extract tmp.iccf time bins where it is > 99% contour of REAL iccf, then fit
+    tmp.peak.idxs <- which(tmp.iccf$iccf > iccf$p99 & abs(tmp.iccf$tau) <= peak.width)
+    tmp.iccf.peak <- tmp.iccf[tmp.peak.idxs,]
+    tmp.iccf.peak <- tmp.iccf.peak[which(is.na(tmp.iccf.peak$iccf) == F),]
+    centroids <- weighted.mean(tmp.iccf.peak$tau, w = tmp.iccf.peak$iccf)
+
+    centroids
+  }
+  stopCluster(cl)
+  centroids <- unname(centroids.parallel[,1])
+  rm(centroids.parallel)
+  centroids <- centroids[which(is.nan(centroids) == F)]
+
+  return(centroids)
+}
+
+
+iccf.pipeline <- function(lightcurve.1, lightcurve.2, delta.tau, max.lag = NA, peak.width = NULL,
+                          beta, length, bins,
+                          n.sims, n.cores,
+                          detrend = FALSE, filter.width = NULL, polynomial.order = 1){
+
+  iccf <- calc.iccf(lightcurve.1, lightcurve.2, delta.tau = delta.tau, max.lag = max.lag)
+  iccf <- iccf.sims.inparallel(iccf = iccf, lightcurve.1 = lightcurve.1, lightcurve.2 = lightcurve.2,
+                               delta.tau = delta.tau, max.lag = max.lag,
+                               beta = beta, length = length, bins = bins,
+                               n.sims = n.sims, n.cores = n.cores,
+                               detrend = detrend, filter.width = filter.width, polynomial.order = polynomial.order)
+  centroid <- iccf.centroid.inparallel(iccf = iccf, lightcurve.1 = lightcurve.1, lightcurve.2 = lightcurve.2,
+                                       delta.tau = delta.tau, max.lag = max.lag, peak.width = peak.width,
+                                       n.sims = n.sims, n.cores = n.cores)
+  return(list("iccf" = iccf, "centroid" = centroid))
 }
