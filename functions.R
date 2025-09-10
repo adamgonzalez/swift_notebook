@@ -140,27 +140,24 @@ remove.dropouts <- function(light.curve, minimum.separation = NULL, tolerance = 
 }
 
 
-calc.fvar <- function(lightcurve, method = "Vaughan"){
+calc.fvar <- function(light.curve, method = "Vaughan"){
   #' @title Compute fractional variability of light curve
   #' @description Takes the input data frame light curve and compute the fractional variability as in Vaughan et al. (2003), MNRAS, 345, 1271-1284.
-  #' @param lightcurve data frame of light curve
+  #' @param light.curve data frame of light curve
   #' @param method method used to compute fractional variability
   #' @return Data frame of fractional variability and error.
-  #' @examples fv <- fracvar(lightcurve)
   #' @export
+
+  y.vals <- light.curve$RATE
+  y.errs <- light.curve$RATE.ERR
+  s.sq <- sum((y.vals - mean(y.vals))^2) / (length(y.vals)-1)
 
   if (method == "Edelson"){
     ### Edelson+2002
-    y.vals <- lightcurve$RATE
-    y.errs <- lightcurve$RATE.ERR
-    s.sq <- sum((y.vals - mean(y.vals))^2) / (length(y.vals)-1)
     f.var <- sqrt(s.sq-mean(y.errs^2))/mean(y.vals)
     f.var.err <- (1/f.var) * sqrt(1/(2*length(y.vals))) * (s.sq/(mean(y.vals)^2))
   } else if (method == "Vaughan"){
     ### Vaughan+2003
-    y.vals <- lightcurve$RATE
-    y.errs <- lightcurve$RATE.ERR
-    s.sq <- sum((y.vals - mean(y.vals))^2) / (length(y.vals) - 1)
     sig.sq <- sum(y.errs^2) / length(y.errs)
     f.var <- sqrt((s.sq - sig.sq) / mean(y.vals)^2)
     f.var.err <- sqrt((sqrt(1 / (2*length(y.vals))) * sig.sq / (mean(y.vals)^2 * f.var))^2 + (sqrt(sig.sq/length(y.vals)) * 1/mean(y.vals))^2)
@@ -243,28 +240,72 @@ calc.sf <- function(light.curve, min.counts = 10, var.signal = 1, var.noise = 0)
     cat("***be careful with this SF, it has bad values!", "\n")
   }
 
-  # sf$val[which(sf$err > sf$val)] = sf$err
-  # sf$val[which(sf$val < 0)] = 0
-
   return(sf)
 }
 
 
-calc.iccf <- function(lightcurve.1, lightcurve.2, delta.tau, max.lag = NA){
+broken.power.law <- function(params, x){
+  #' @title Broken power law model
+  #' @description A broken power law model for fitting structure functions
+  #' @param params list of parameters for the broken power law model (1: scale,
+  #' 2: slope, 3: break time)
+  #' @param x time values
+  #' @return model y (i.e structure function) values
+  #' @export
+
+  x.prebreak <- x[x <= params[3]]
+  x.postbreak <- x[x > params[3]]
+  y.prebreak <- (10^params[1])*(x.prebreak^params[2])
+  y.postbreak <- rep((10^params[1])*(x.prebreak[length(x.prebreak)]^params[2]), length.out = length(x.postbreak))
+  return(c(y.prebreak, y.postbreak))
+}
+
+
+calc.chisq <- function(par, data){
+  #' @title Chi-squared calculator
+  #' @description Computes the chi-squared value of a model evaluated against some data
+  #' @param par list of parameters for the model; note that this MUST be the first argument!
+  #' @param data the data to be used with columns for x, y, and e (error)
+  #' @return chi-squared value
+  #' @export
+
+  mod.vals <- broken.power.law(par, data$x)
+  chisq.val <- sum( (data$y - mod.vals)^2 / data$e^2 )
+  return(chisq.val)
+}
+
+
+fit.sf.brknpwrlw <- function(sf, start.params, tchar.vals){
+  min.chisq <- Inf
+  for (tchar in tchar.vals){
+    fit.results <- optim(par = start.params,
+                         fn = calc.chisq,
+                         data = data.frame(x = sf$tau, y = sf$val, e = sf$err)
+                         )
+    if (fit.results$value < min.chisq){
+      min.chisq <- fit.results$value
+      min.params <- fit.results$par
+    }
+  }
+  return(min.params)
+}
+
+
+calc.iccf <- function(light.curve.1, light.curve.2, delta.tau, max.lag = NA){
   #' @title Compute the interpolation cross-correlation function
   #' @description Takes the input data frames of two light curves and computes the interpolation cross-correlation function (ICCF) as in Gaskell & Peterson (1987).
-  #' @param lightcurve.1 data frame of first light curve
-  #' @param lightcurve.2 data frame of second light curve
+  #' @param light.curve.1 data frame of first light curve
+  #' @param light.curve.2 data frame of second light curve
   #' @param delta.tau time step to sample lags over
   #' @param max.lag maximum lag to calculate
   #' @return Data frame of the ICCF
   #' @export
 
   ### Extract the light curve time and count rates
-  x.1 <- lightcurve.1$TIME - lightcurve.1$TIME[1]
-  y.1 <- lightcurve.1$RATE
-  x.2 <- lightcurve.2$TIME - lightcurve.1$TIME[1]
-  y.2 <- lightcurve.2$RATE
+  x.1 <- light.curve.1$TIME - light.curve.1$TIME[1]
+  y.1 <- light.curve.1$RATE
+  x.2 <- light.curve.2$TIME - light.curve.1$TIME[1]
+  y.2 <- light.curve.2$RATE
 
   ### Set up the lag values based on input delta.tau and max.lag
   if (is.na(max.lag) == F){
@@ -339,7 +380,7 @@ impose.gappy.cadence <- function(parent, child){
 }
 
 
-iccf.sims.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau, max.lag, beta, length, bins, n.sims, n.cores,
+iccf.sims.inparallel <- function(iccf, light.curve.1, light.curve.2, delta.tau, max.lag, beta, length, bins, n.sims, n.cores,
                                  detrend = FALSE, filter.width = NULL, polynomial.order = 1){
   cl <- makeCluster(n.cores[1])
   registerDoParallel(cl)
@@ -351,12 +392,12 @@ iccf.sims.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau, ma
                                                 "TK95.simulate.lightcurve"
                                                 )
                                     ) %dopar% {
-    slc <- TK95.simulate.lightcurve(beta, length = length, bins = bins, scale.factor = var(lightcurve.1$RATE), shift.factor = mean(lightcurve.1$RATE), error.scale = mean(lightcurve.1$RATE.ERR/lightcurve.1$RATE))
-    slc <- impose.gappy.cadence(lightcurve.1, slc)
+    slc <- TK95.simulate.lightcurve(beta, length = length, bins = bins, scale.factor = var(light.curve.1$RATE), shift.factor = mean(light.curve.1$RATE), error.scale = mean(light.curve.1$RATE.ERR/light.curve.1$RATE))
+    slc <- impose.gappy.cadence(light.curve.1, slc)
     if (detrend == TRUE & is.null(filter.width) == FALSE){
       slc <- detrend.SavitzkyGolay(slc, filter.width = filter.width, polynomial.order = polynomial.order, output = 'detrended')
     }
-    sim.iccf <- calc.iccf(slc, lightcurve.2, delta.tau = delta.tau, max.lag = max.lag)
+    sim.iccf <- calc.iccf(slc, light.curve.2, delta.tau = delta.tau, max.lag = max.lag)
     all.sim.iccfs <- sim.iccf$iccf
 
     all.sim.iccfs
@@ -376,7 +417,7 @@ iccf.sims.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau, ma
 }
 
 
-iccf.centroid.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau, max.lag, peak.width = NULL, n.sims, n.cores){
+iccf.centroid.inparallel <- function(iccf, light.curve.1, light.curve.2, delta.tau, max.lag, peak.width = NULL, n.sims, n.cores){
   if (is.null(peak.width) == TRUE){
     peak.width <- max.lag
   }
@@ -388,8 +429,8 @@ iccf.centroid.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau
                                 .combine=rbind,
                                 .export = c("calc.iccf")
                                 ) %dopar% {
-    base.tmp <- lightcurve.1
-    compare.tmp <- lightcurve.2
+    base.tmp <- light.curve.1
+    compare.tmp <- light.curve.2
 
     ### perform flux randomisation using error bars as st.dev. with mean = 0
     base.tmp$RATE <- base.tmp$RATE + rnorm(n = length(base.tmp$RATE.ERR), mean = 0, sd = base.tmp$RATE.ERR)
@@ -422,18 +463,18 @@ iccf.centroid.inparallel <- function(iccf, lightcurve.1, lightcurve.2, delta.tau
 }
 
 
-iccf.pipeline <- function(lightcurve.1, lightcurve.2, delta.tau, max.lag = NA, peak.width = NULL,
+iccf.pipeline <- function(light.curve.1, light.curve.2, delta.tau, max.lag = NA, peak.width = NULL,
                           beta, length, bins,
                           n.sims, n.cores,
                           detrend = FALSE, filter.width = NULL, polynomial.order = 1){
 
-  iccf <- calc.iccf(lightcurve.1, lightcurve.2, delta.tau = delta.tau, max.lag = max.lag)
-  iccf <- iccf.sims.inparallel(iccf = iccf, lightcurve.1 = lightcurve.1, lightcurve.2 = lightcurve.2,
+  iccf <- calc.iccf(light.curve.1, light.curve.2, delta.tau = delta.tau, max.lag = max.lag)
+  iccf <- iccf.sims.inparallel(iccf = iccf, light.curve.1 = light.curve.1, light.curve.2 = light.curve.2,
                                delta.tau = delta.tau, max.lag = max.lag,
                                beta = beta, length = length, bins = bins,
                                n.sims = n.sims, n.cores = n.cores,
                                detrend = detrend, filter.width = filter.width, polynomial.order = polynomial.order)
-  centroid <- iccf.centroid.inparallel(iccf = iccf, lightcurve.1 = lightcurve.1, lightcurve.2 = lightcurve.2,
+  centroid <- iccf.centroid.inparallel(iccf = iccf, light.curve.1 = light.curve.1, light.curve.2 = light.curve.2,
                                        delta.tau = delta.tau, max.lag = max.lag, peak.width = peak.width,
                                        n.sims = n.sims, n.cores = n.cores)
   return(list("iccf" = iccf, "centroid" = centroid))
