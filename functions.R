@@ -1,37 +1,98 @@
 library(foreach)
 library(parallel)
 library(doParallel)
+library(optimx)
 
-lc.uvot <- function(file.path, flux.units){
+
+#' lc.uvot <- function(file.path, flux.units){
+#'   #' @title Reads in uvotsource output files and makes a light curve data frame
+#'   #' @description This function will read in all of the output files produced by
+#'   #' the uvotsource HEASoft tool that are stored in the given file path.
+#'   #' @param file.path System file path to the directory that contains the output
+#'   #' files from uvotsource.
+#'   #' @param flux.units Light curve flux units. Options are: rate (counts/second)
+#'   #' , flux (ergs/s/cm^2/A), and mJy (milliJansky).
+#'   #' @returns A data frame with columns for observation ID, UVOT telescope
+#'   #' filter, time (MET), time error (MET), flux, and flux error.
+#'   #' @export
+#'
+#'   working.path <- getwd()
+#'
+#'   ### Determine what flux and error columns to grab based on user input
+#'   if (flux.units == "rate"){
+#'     val <- "CORR_RATE"
+#'     err <- "CORR_RATE_ERR"
+#'   } else if (flux.units == "flux"){
+#'     val <- "FLUX_AA"
+#'     err <- "FLUX_AA_ERR"
+#'   } else if (flux.units == "mJy"){
+#'     val <- "FLUX_HZ"
+#'     err <- "FLUX_HZ_ERR"
+#'   } else {
+#'     cat("***flux units not recognized!\nplease enter 'rate', 'flux', or 'Jy'\n")
+#'     break
+#'   }
+#'
+#'   ### Read in all of the file names, splitting in OBSID and filter information
+#'   setwd(file.path)
+#'   all.files <- list.files(pattern = ".fits")
+#'   df.files <- data.frame(FILENAME = rep(NA, length.out = length(all.files)))
+#'   df.files$OBSID <- NA
+#'   df.files$FILTER <- NA
+#'   for (i in 1:length(all.files)){
+#'     df.files$FILENAME[i] <- all.files[i]
+#'     df.files$OBSID[i] <- strsplit(all.files[i], "_")[[1]][1]
+#'     df.files$FILTER[i] <- strsplit(strsplit(all.files[i], "_")[[1]][2], ".fits")[[1]][1]
+#'   }
+#'   rm(all.files)
+#'
+#'   ### Create the full UVOT light curve
+#'   obs.ids <- unique(df.files$OBSID)
+#'   lc <- data.frame(OBSID = NA,
+#'                    FILTER = NA,
+#'                    TIME = NA_real_, TIME.ERR = NA_real_,
+#'                    RATE = NA_real_, RATE.ERR = NA_real_)
+#'
+#'   for (k in 1:length(obs.ids)){
+#'   # for (k in 1:50){
+#'     cat(paste("Working on observation:\t", k, " / ", length(obs.ids)), "\r")
+#'     tmp.files <- df.files[which(df.files$OBSID == obs.ids[k]),]
+#'
+#'     if (length(tmp.files$OBSID) == 0){
+#'       next
+#'     }
+#'
+#'     for (j in 1:length(tmp.files$FILENAME)){
+#'       file.tmp <- FITSio::readFITS(tmp.files$FILENAME[j])
+#'       idx.val <- which(file.tmp$colNames == val)
+#'       idx.err <- which(file.tmp$colNames == err)
+#'       lc <- rbind(lc, data.frame(OBSID = tmp.files$OBSID[j],
+#'                                  FILTER = tmp.files$FILTER[j],
+#'                                  TIME = file.tmp$col[[1]], TIME.ERR = file.tmp$col[[4]]-file.tmp$col[[3]],
+#'                                  RATE = file.tmp$col[[idx.val]], RATE.ERR = file.tmp$col[[idx.err]]))
+#'     }
+#'     rm(list = ls(pattern = "tmp"))
+#'   }
+#'   lc <- lc[-1,]
+#'   lc <- lc[order(lc$TIME),]
+#'
+#'   setwd(working.path)
+#'   return(lc)
+#' }
+
+
+lc.uvot <- function(file.path){
   #' @title Reads in uvotsource output files and makes a light curve data frame
   #' @description This function will read in all of the output files produced by
   #' the uvotsource HEASoft tool that are stored in the given file path.
   #' @param file.path System file path to the directory that contains the output
   #' files from uvotsource.
-  #' @param flux.units Light curve flux units. Options are: rate (counts/second)
-  #' , flux (ergs/s/cm^2/A), and mJy (milliJansky).
   #' @returns A data frame with columns for observation ID, UVOT telescope
   #' filter, time (MET), time error (MET), flux, and flux error.
   #' @export
 
+  # Read in all of the file names, splitting in OBSID and filter information
   working.path <- getwd()
-
-  ### Determine what flux and error columns to grab based on user input
-  if (flux.units == "rate"){
-    val <- "CORR_RATE"
-    err <- "CORR_RATE_ERR"
-  } else if (flux.units == "flux"){
-    val <- "FLUX_AA"
-    err <- "FLUX_AA_ERR"
-  } else if (flux.units == "mJy"){
-    val <- "FLUX_HZ"
-    err <- "FLUX_HZ_ERR"
-  } else {
-    cat("***flux units not recognized!\nplease enter 'rate', 'flux', or 'Jy'\n")
-    break
-  }
-
-  ### Read in all of the file names, splitting in OBSID and filter information
   setwd(file.path)
   all.files <- list.files(pattern = ".fits")
   df.files <- data.frame(FILENAME = rep(NA, length.out = length(all.files)))
@@ -44,15 +105,17 @@ lc.uvot <- function(file.path, flux.units){
   }
   rm(all.files)
 
-  ### Create the full UVOT light curve
+  # Create the full UVOT light curve
   obs.ids <- unique(df.files$OBSID)
   lc <- data.frame(OBSID = NA,
                    FILTER = NA,
                    TIME = NA_real_, TIME.ERR = NA_real_,
-                   RATE = NA_real_, RATE.ERR = NA_real_)
+                   RATE = NA_real_, RATE.ERR = NA_real_,
+                   FLUX.AA = NA_real_, FLUX.AA.ERR = NA_real_,
+                   FLUX.HZ = NA_real_, FLUX.HZ.ERR = NA_real_
+                   )
 
   for (k in 1:length(obs.ids)){
-  # for (k in 1:50){
     cat(paste("Working on observation:\t", k, " / ", length(obs.ids)), "\r")
     tmp.files <- df.files[which(df.files$OBSID == obs.ids[k]),]
 
@@ -62,12 +125,14 @@ lc.uvot <- function(file.path, flux.units){
 
     for (j in 1:length(tmp.files$FILENAME)){
       file.tmp <- FITSio::readFITS(tmp.files$FILENAME[j])
-      idx.val <- which(file.tmp$colNames == val)
-      idx.err <- which(file.tmp$colNames == err)
       lc <- rbind(lc, data.frame(OBSID = tmp.files$OBSID[j],
                                  FILTER = tmp.files$FILTER[j],
                                  TIME = file.tmp$col[[1]], TIME.ERR = file.tmp$col[[4]]-file.tmp$col[[3]],
-                                 RATE = file.tmp$col[[idx.val]], RATE.ERR = file.tmp$col[[idx.err]]))
+                                 RATE = file.tmp$col[[which(file.tmp$colNames == "CORR_RATE")]], RATE.ERR = file.tmp$col[[which(file.tmp$colNames == "CORR_RATE_ERR")]],
+                                 FLUX.AA = file.tmp$col[[which(file.tmp$colNames == "FLUX_AA")]], FLUX.AA.ERR = file.tmp$col[[which(file.tmp$colNames == "FLUX_AA_ERR")]],
+                                 FLUX.HZ = file.tmp$col[[which(file.tmp$colNames == "FLUX_HZ")]], FLUX.HZ.ERR = file.tmp$col[[which(file.tmp$colNames == "FLUX_HZ_ERR")]]
+                                 )
+                  )
     }
     rm(list = ls(pattern = "tmp"))
   }
@@ -261,7 +326,12 @@ broken.power.law <- function(params, x){
 }
 
 
-calc.chisq <- function(par, data){
+calc.chisq <- function(model.values, y, e){
+  return(sum( (y - model.values)^2 / e^2 ))
+}
+
+
+chisq.brknpwrlw <- function(par, data){
   #' @title Chi-squared calculator
   #' @description Computes the chi-squared value of a model evaluated against some data
   #' @param par list of parameters for the model; note that this MUST be the first argument!
@@ -269,9 +339,7 @@ calc.chisq <- function(par, data){
   #' @return chi-squared value
   #' @export
 
-  mod.vals <- broken.power.law(par, data$x)
-  chisq.val <- sum( (data$y - mod.vals)^2 / data$e^2 )
-  return(chisq.val)
+  return(calc.chisq(broken.power.law(par, data$x), data$y, data$e))
 }
 
 
@@ -279,7 +347,7 @@ fit.sf.brknpwrlw <- function(sf, start.params, tchar.vals){
   min.chisq <- Inf
   for (tchar in tchar.vals){
     fit.results <- optim(par = start.params,
-                         fn = calc.chisq,
+                         fn = chisq.brknpwrlw,
                          data = data.frame(x = sf$tau, y = sf$val, e = sf$err)
                          )
     if (fit.results$value < min.chisq){
@@ -479,3 +547,173 @@ iccf.pipeline <- function(light.curve.1, light.curve.2, delta.tau, max.lag = NA,
                                        n.sims = n.sims, n.cores = n.cores)
   return(list("iccf" = iccf, "centroid" = centroid))
 }
+
+
+deredden <- function(light.curve, wavelength, EBmV, RV = 3.1, update = F){
+  #' @title De-redden optical/UV data
+  #' @description This function reads in a data-frame of wavelengths (in micrometers) and optical/UV magnitudes to de-redden them according to Cardelli+1989
+  #' @param df data frame with columns 'wavelength' (in micrometers) and 'flux' (counts per second)
+  #' @param EBmV foreground Galactic extinction in V-band (i.e. from NASA/IPAC Extragalactic Database, NED)
+  #' @param RV extinction law (default = 3.1 for Milky Way extinction)
+  #' @param update boolean (TRUE or FALSE) whether or not to include the O'Donnell (1994) correction (default = F)
+  #' @return Returns the input data frame with an additional 'dered' column of de-reddened values
+  #' @export
+
+  AV <- EBmV*RV
+  x <- 1/(wavelength/1e4)
+  if (x >= 1.1 & x < 3.3){
+    y <- x-1.82
+    if (update == T){
+      acoeff <- 1 + 0.104*y - 0.609*y^2 + 0.701*y^3 + 1.137*y^4 - 1.718*y^5 - 0.827*y^6 + 1.647*y^5 - 0.505*y^8
+      bcoeff <- 1.952*y + 2.908*y^2 - 3.989*y^3 - 7.985*y^4 + 11.102*y^5 + 5.941*y^6 - 10.805*y^7 + 3.347*y^8
+    } else if (update == F){
+      acoeff <- 1 + 0.17699*y - 0.50447*y^2 - 0.02427*y^3 + 0.72085*y^4 + 0.01979*y^5 - 0.77530*y^6 + 0.32999*y^7
+      bcoeff <- 1.41338*y + 2.28305*y^2 + 1.07233*y^3 - 5.38434*y^4 - 0.62251*y^5 + 5.30260*y^6 - 2.09002*y^7
+    }
+  } else if (x >= 3.3 & x < 5.9){
+    acoeff <- 1.752 - 0.316*x - 0.104/((x-4.67)^2 + 0.341)
+    bcoeff <- -3.090 + 1.825*x + 1.206/((x-4.62)^2 + 0.263)
+  } else if (x >= 5.9 & x < 8){
+    acoeff <- 1.752 - 0.316*x - 0.104/((x-4.67)^2 + 0.341) - 0.04473*(x-5.9)^2 - 0.009779*(x-5.9)^3
+    bcoeff <- -3.090 + 1.825*x + 1.206/((x-4.62)^2 + 0.263) + 0.2130*(x-5.9)^2 + 0.1207*(x-5.9)^3
+  } else if (x >= 8 & x < 10){
+    acoeff <- -1.073 - 0.628*(x-8) + 0.137*(x-8)^2 - 0.070*(x-8)^3
+    bcoeff <- 13.670 + 4.257*(x-8) - 0.420*(x-8)^2 + 0.374*(x-8)^3
+  } else if (x >= 10){
+    cat("...wavelength not covered by curve (too short)!\n")
+    break
+  } else if (x < 1.1){
+    cat("...wavelength not covered by curve (too long)!\n")
+    break
+  } else {
+    cat("...check that the wavelength units are micrometers!\n")
+    break
+  }
+  Alambda <- AV*(acoeff + bcoeff/RV)
+  light.curve$RATE <- light.curve$RATE*10^(0.4*Alambda)
+  light.curve$RATE.ERR <- light.curve$RATE.ERR*10^(0.4*Alambda)
+
+  return(light.curve)
+}
+
+
+normalize.lightcurve <- function(light.curve){
+  #' @title Normalize an input light curve
+  #' @description Subtract the RATE mean and divide by RATE standard deviation
+  #' @param light.curve data frame of the light curve with at least columns of RATE and RATE.ERR
+  #' @return Data frame of the normlized light curve
+  #' @export
+
+  avg <- mean(light.curve$RATE)
+  std <- sd(light.curve$RATE)
+  light.curve$RATE <- (light.curve$RATE-avg)/std
+  light.curve$RATE.ERR <- light.curve$RATE.ERR/std
+  return( light.curve )
+}
+
+
+closest.idx <- function(light.curve, approx.times){
+  idx <- NA_real_
+  for (i in 1:length(light.curve$TIME)){
+    idx <- c(idx, which.min(abs(approx.times-light.curve$TIME[i])))
+  }
+  idx <- unique(idx[-1])
+  return( idx )
+}
+
+
+filter.times <- function(light.curve, approx.times){
+  idx <- NA_real_
+  for (i in 1:length(approx.times)){
+    idx <- c(idx, which.min(abs(light.curve$TIME-approx.times[i])))
+  }
+  idx <- unique(idx[-1])
+  light.curve <- light.curve[idx,]
+  return( light.curve )
+}
+
+
+chisq.xt <- function(par, data, xt){
+  w2.model <- par[1]+par[2]*xt
+  chi.w2 <- calc.chisq(w2.model, data$w2, data$w2.err)
+
+  m2.model <- par[3]+par[4]*xt
+  chi.m2 <- calc.chisq(m2.model, data$m2, data$m2.err)
+
+  w1.model <- par[5]+par[6]*xt
+  chi.w1 <- calc.chisq(w1.model, data$w1, data$w1.err)
+
+  u.model <- par[7]+par[8]*xt
+  chi.u <- calc.chisq(u.model, data$u, data$u.err)
+
+  b.model <- par[9]+par[10]*xt
+  chi.b <- calc.chisq(b.model, data$b, data$b.err)
+
+  v.model <- par[11]+par[12]*xt
+  chi.v <- calc.chisq(v.model, data$v, data$v.err)
+
+  return( sum(c(chi.w2, chi.m2, chi.w1, chi.u, chi.b, chi.v)) )
+}
+
+
+fit.xt <- function(data, start.params, xt){
+  fit.results <- optimx(par = start.params,
+                        fn = chisq.xt,
+                        data = data,
+                        xt = xt,
+                        method = c("BFGS")
+                        )
+
+  pars <- list("w2.avg" = fit.results$p1, "w2.rms" = fit.results$p2,
+               "m2.avg" = fit.results$p3, "m2.rms" = fit.results$p4,
+               "w1.avg" = fit.results$p5, "w1.rms" = fit.results$p6,
+               "u.avg" = fit.results$p7, "u.rms" = fit.results$p8,
+               "b.avg" = fit.results$p9, "b.rms" = fit.results$p10,
+               "v.avg" = fit.results$p11, "v.rms" = fit.results$p12,
+               "chisq" = fit.results$value, "red.chisq" = fit.results$value/(length(xt)*6-2*6)
+               )
+
+  return(pars)
+}
+
+
+generate.variability.spectrum <- function(fit.par, xt){
+  w2.gal <- -fit.par$w2.avg/fit.par$w2.rms
+  w2.min <- fit.par$w2.avg + fit.par$w2.rms*min(xt)
+  w2.max <- fit.par$w2.avg + fit.par$w2.rms*max(xt)
+  w2.dif <- w2.max - w2.min
+
+  m2.gal <- fit.par$m2.avg + fit.par$m2.rms*w2.gal
+  m2.min <- fit.par$m2.avg + fit.par$m2.rms*min(xt)
+  m2.max <- fit.par$m2.avg + fit.par$m2.rms*max(xt)
+  m2.dif <- m2.max - m2.min
+
+  w1.gal <- fit.par$w1.avg + fit.par$w1.rms*w2.gal
+  w1.min <- fit.par$w1.avg + fit.par$w1.rms*min(xt)
+  w1.max <- fit.par$w1.avg + fit.par$w1.rms*max(xt)
+  w1.dif <- w1.max - w1.min
+
+  u.gal <- fit.par$u.avg + fit.par$u.rms*w2.gal
+  u.min <- fit.par$u.avg + fit.par$u.rms*min(xt)
+  u.max <- fit.par$u.avg + fit.par$u.rms*max(xt)
+  u.dif <- u.max - u.min
+
+  b.gal <- fit.par$b.avg + fit.par$b.rms*w2.gal
+  b.min <- fit.par$b.avg + fit.par$b.rms*min(xt)
+  b.max <- fit.par$b.avg + fit.par$b.rms*max(xt)
+  b.dif <- b.max - b.min
+
+  v.gal <- fit.par$v.avg + fit.par$v.rms*w2.gal
+  v.min <- fit.par$v.avg + fit.par$v.rms*min(xt)
+  v.max <- fit.par$v.avg + fit.par$v.rms*max(xt)
+  v.dif <- v.max - v.min
+
+  return(data.frame(WAVELENGTH = c(1928, 2246, 2600, 3465, 4392, 5468),
+                    AVG = c(fit.par$w2.avg, fit.par$m2.avg, fit.par$w1.avg, fit.par$u.avg, fit.par$b.avg, fit.par$v.avg),
+                    RMS = c(fit.par$w2.rms, fit.par$m2.rms, fit.par$w1.rms, fit.par$u.rms, fit.par$b.rms, fit.par$v.rms),
+                    AGN = c(w2.dif, m2.dif, w1.dif, u.dif, b.dif, v.dif),
+                    GAL = c(NA_real_, m2.gal, w1.gal, u.gal, b.gal, v.gal)
+                    )
+         )
+}
+
